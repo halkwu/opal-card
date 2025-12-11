@@ -590,12 +590,4 @@ export async function getTransactions(
     fs.writeFileSync(outPath, JSON.stringify(filtered, null, 2), 'utf8');
 
     return filtered;
-
-}
-
-// Write results to a JSON file alongside returning them
-export function TransactionsToJson(results: any[], filename = 'transactions.json') {
-    const outPath = path.resolve(process.cwd(), filename);
-    fs.writeFileSync(outPath, JSON.stringify(results, null, 2), 'utf8');
-    
 }
