@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Opal Scraper Input</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; padding: 20px; max-width: 720px; margin: auto }
+    label { display:block; margin-top: 12px; font-weight: 600 }
+    input[type=text], input[type=password] { width:100%; padding:8px; box-sizing:border-box }
+    .row { display:flex; gap:12px }
+    .row > * { flex:1 }
+    button { margin-top:16px; padding:10px 14px }
+    .note { margin-top:16px; background:#f7f7f7; padding:10px; border-left:3px solid #888 }
+  </style>
+</head>
+<body>
+  <h1>Opal Scraper — Input Builder</h1>
+  <p>Fill the form and click <strong>Run &amp; Download Transactions</strong> to run the scraper on the server and download the resulting transactions JSON.</p>
+
+  <form id="scraperForm">
+    <label>Username (email)
+      <input id="username" type="text" placeholder="you@example.com" required />
+    </label>
+
+    <label>Password
+      <input id="password" type="password" placeholder="password" required />
+    </label>
+
+    <div class="row">
+      <label>Start date (MM-DD-YYYY)
+        <input id="startDate" type="text" placeholder="MM-DD-YYYY or leave empty for earliest" />
+      </label>
+      <label>End date (MM-DD-YYYY)
+        <input id="endDate" type="text" placeholder="MM-DD-YYYY or leave empty for today" />
+      </label>
+    </div>
+
+    <label style="margin-top:10px">
+      <input id="showBrowser" type="checkbox" checked /> Open browser during scraping (useful for debugging)
+    </label>
+
+    <div style="display:flex; gap:10px; margin-top:12px">
+      <button type="button" id="runBtn">Run &amp; Download Transactions</button>
+    </div>
+  </form>
+
+  <script>
+    document.getElementById('runBtn').addEventListener('click', async () => {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const startDate = document.getElementById('startDate').value.trim() || null;
+      const endDate = document.getElementById('endDate').value.trim() || null;
+      const showBrowser = document.getElementById('showBrowser').checked;
+
+      if (!username || !password) {
+        alert('Please enter username and password.');
+        return;
+      }
+
+      try {
+        const resp = await fetch('/api/scrape', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, startDate, endDate, showBrowser })
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ error: resp.statusText }));
+          alert('Error: ' + (err && err.error ? err.error : resp.statusText));
+          return;
+        }
+
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        // Try to extract filename from header
+        const cd = resp.headers.get('Content-Disposition') || '';
+        const m = cd.match(/filename="?([^";]+)/);
+        a.download = m ? m[1] : 'transactions.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('Request failed: ' + e);
+      }
+    });
+  </script>
+</body>
+</html>
