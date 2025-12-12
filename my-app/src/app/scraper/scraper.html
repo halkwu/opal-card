@@ -23,6 +23,24 @@
   </div>
 
   <div style="margin-top:10px">
-    <button (click)="run()" [disabled]="running">{{ running ? 'Running...' : 'Run & Download Transactions' }}</button>
+    <button (click)="run()" [disabled]="running">{{ running ? 'Running...' : 'Run & Show Transactions' }}</button>
+  </div>
+
+  <div *ngIf="tableError" class="alert error" style="margin-top:10px">{{ tableError }}</div>
+
+  <div *ngIf="previewRows.length" class="table-container" style="margin-top:16px">
+    <h3>Transactions</h3>
+    <table>
+      <thead>
+        <tr>
+          <th *ngFor="let col of previewColumns">{{ col }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let row of previewRows">
+          <td *ngFor="let col of previewColumns">{{ formatCell(row[col]) }}</td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </div>

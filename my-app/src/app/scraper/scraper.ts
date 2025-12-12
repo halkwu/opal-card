@@ -20,6 +20,9 @@ export class Scraper {
   running = false;
   message: string | null = null;
   messageType: 'info' | 'error' = 'info';
+  previewColumns: string[] = [];
+  previewRows: Array<Record<string, any>> = [];
+  tableError: string | null = null;
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef, private zone: NgZone) {}
 
@@ -96,25 +99,10 @@ export class Scraper {
         this.showMessage('No response from server', 'error');
         return;
       }
-      // Extract blob and filename from headers
+      // Parse blob and render table directly on page
       const blob = resp.body as Blob;
-      // Default filename
-      let filename = 'transactions.json';
-      const cd = resp.headers?.get('Content-Disposition') || resp.headers?.get('content-disposition');
-      if (cd) {
-        const match = /filename\s*=\s*"?([^";]+)"?/i.exec(cd);
-        if (match && match[1]) {
-          filename = match[1];
-        }
-      }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await this.displayTransactionsFromBlob(blob);
+      this.showMessage('Transactions loaded.', 'info');
     } catch (e: any) {
       try {
         // Detect invalid credentials (401) and show a friendly message
@@ -131,7 +119,7 @@ export class Scraper {
         }
       } catch (_) {
         if (e?.status === 401) {
-          this.showMessage('请输入正确的用户名或密码', 'error');
+          this.showMessage('Please enter the correct username or password', 'error');
         } else {
           this.showMessage('Request failed: ' + (e?.message || e), 'error');
         }
@@ -145,6 +133,54 @@ export class Scraper {
     }
   }
 
+  // Parse a Blob of JSON transactions and render specific columns
+  private async displayTransactionsFromBlob(blob: Blob) {
+    try {
+      const text = await blob.text();
+      const data = JSON.parse(text);
+      let rows: any[] = [];
+      if (Array.isArray(data)) {
+        rows = data;
+      } else if (data && typeof data === 'object') {
+        const candidateKey = ['transactions', 'items', 'data'].find(k => Array.isArray((data as any)[k]));
+        rows = candidateKey ? (data as any)[candidateKey] : [data];
+      }
+      rows = rows.filter(r => r && typeof r === 'object');
+      if (!rows.length) {
+        this.tableError = 'JSON format not recognized: expected a list of objects.';
+        return;
+      }
+
+      // Keep only specified fields and set column order
+      const desiredColumns = [
+        'time_local',
+        'quantity',
+        'currency',
+        'accountId',
+        'mode',
+        'tap_on_location',
+        'tap_off_location',
+        'status',
+        'bankImportedBalance'
+      ];
+
+      const processed = rows.map(r => {
+        const o: Record<string, any> = {};
+        for (const k of desiredColumns) {
+          o[k] = r[k];
+        }
+        return o;
+      });
+
+      this.previewColumns = desiredColumns;
+      this.previewRows = processed;
+      this.tableError = null;
+      this.cdr.detectChanges();
+    } catch (err: any) {
+      this.tableError = 'Failed to parse transactions: ' + (err?.message || String(err));
+    }
+  }
+
   private showMessage(msg: string, type: 'info' | 'error' = 'info', autoClearMs = 5000) {
     this.messageType = type;
     this.message = msg;
@@ -155,5 +191,52 @@ export class Scraper {
         this.cdr.detectChanges();
       }, autoClearMs);
     }
+  }
+
+  // Load a downloaded JSON file and render as a table
+  async onFileSelected(evt: Event) {
+    this.tableError = null;
+    this.previewColumns = [];
+    this.previewRows = [];
+    const input = evt.target as HTMLInputElement;
+    const file = input?.files && input.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      // Accept either an array of objects or a single object with a property containing the array
+      let rows: any[] = [];
+      if (Array.isArray(data)) {
+        rows = data;
+      } else if (data && typeof data === 'object') {
+        // Try common keys
+        const candidateKey = ['transactions', 'items', 'data'].find(k => Array.isArray((data as any)[k]));
+        rows = candidateKey ? (data as any)[candidateKey] : [data];
+      }
+      rows = rows.filter(r => r && typeof r === 'object');
+      if (!rows.length) {
+        this.tableError = 'JSON format not recognized: expected a list of objects.';
+        return;
+      }
+      // Derive columns from union of keys across first N rows
+      const sampleCount = Math.min(rows.length, 20);
+      const keySet = new Set<string>();
+      for (let i = 0; i < sampleCount; i++) {
+        Object.keys(rows[i]).forEach(k => keySet.add(k));
+      }
+      this.previewColumns = Array.from(keySet);
+      this.previewRows = rows;
+      this.cdr.detectChanges();
+    } catch (err: any) {
+      this.tableError = 'Failed to load JSON: ' + (err?.message || String(err));
+    }
+  }
+
+  formatCell(v: any): string {
+    if (v == null) return '';
+    if (typeof v === 'object') {
+      try { return JSON.stringify(v); } catch { return String(v); }
+    }
+    return String(v);
   }
 }
