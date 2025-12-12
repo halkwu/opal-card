@@ -1,0 +1,30 @@
+.scraper { max-width:720px; margin:16px auto; font-family: Arial, Helvetica, sans-serif }
+.scraper label { display:block; margin-top:8px }
+.scraper input { padding:8px; width:100%; box-sizing:border-box }
+.scraper .row { display:flex; gap:12px }
+.scraper .row > label { flex:1 }
+button[disabled] { opacity:0.6 }
+
+/* Keep checkbox and its hint on the same line and vertically centered */
+.scraper .checkbox-row {
+	display: inline-flex;
+	align-items: flex-start;
+	gap: 5px;
+}
+.scraper .checkbox-row input[type="checkbox"] {
+	margin: 0;
+	transform: translateY(0);
+}
+.scraper .checkbox-row span {
+	display: inline;
+}
+
+/* Prevent checkbox hint from wrapping to multiple lines; show ellipsis if too long */
+.scraper .checkbox-row {
+	white-space: nowrap;
+}
+.scraper .checkbox-row span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: calc(100% - 40px);
+}

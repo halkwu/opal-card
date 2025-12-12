@@ -1,0 +1,24 @@
+<div class="scraper">
+  <h2>Opal Scraper</h2>
+  <label>Username (email)
+    <input [(ngModel)]="username" placeholder="you@example.com" />
+  </label>
+  <label>Passsword
+    <input type="password" [(ngModel)]="password" />
+  </label>
+  <div class="row">
+    <label>Start date
+      <input [(ngModel)]="startDate" placeholder="MM-DD-YYYY or leave empty" />
+    </label>
+    <label>End date
+      <input [(ngModel)]="endDate" placeholder="MM-DD-YYYY or leave empty" />
+    </label>
+  </div>
+  <label>
+    <input type="checkbox" [(ngModel)]="showBrowser" /> Open browser during scraping
+  </label>
+
+  <div style="margin-top:10px">
+    <button (click)="run()" [disabled]="running">{{ running ? 'Running...' : 'Run & Download Transactions' }}</button>
+  </div>
+</div>
