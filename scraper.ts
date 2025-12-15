@@ -278,8 +278,10 @@ export async function login(username: string, password: string, showBrowser: boo
 export async function getTransactions(
     context: BrowserContext,
     startDate: Date | null,
-    endDate: Date | null
+    endDate: Date | null,
+    onProgress?: (p: { percent: number; message?: string }) => void
 ): Promise<any[]> {
+
     const page = context.pages()[0];
     await page.goto("https://transportnsw.info/opal-view/#/account/cards", { waitUntil: "networkidle" });
 
@@ -494,12 +496,24 @@ export async function getTransactions(
         monthsToUse = monthsParsed.slice().sort((a, b) => monthCmp(b, a));
     }
 
+    // -------------------- progress init --------------------
+    const totalSteps = cards.length * monthsToUse.length;
+    let completedSteps = 0;
+
+    const emitProgress = (message?: string) => {
+        if (!onProgress || totalSteps === 0) return;
+        const percent = Math.min(
+            100,
+            Math.round((completedSteps / totalSteps) * 100)
+        );
+        onProgress({ percent, message });
+    };
+
     // -------------------- iterate cards and months --------------------
     for (const card of cards) {
         if (card.blocked) continue;
         console.log(`Scraping card: ${card.name}`);
         await card.element.click();
-
         // scraper  to get last balance
         const balanceTextEl = await card.element.$('.opal-selector__card-value');
         let lastBalance: number | null = null;
@@ -511,6 +525,7 @@ export async function getTransactions(
     
         let runningBalance: number | null = lastBalance;
         for (const m of monthsToUse) {
+            emitProgress(`Scraping ${card.name} - ${m.label}`);
             const beforeCount = results.length;
             await monthSelector.selectOption({ value: m.value ?? undefined });
             await page.waitForResponse(res => res.url().includes("activity") && res.status() === 200).catch(() => {});
@@ -568,6 +583,9 @@ export async function getTransactions(
             const afterCount = results.length;
             const monthCount = afterCount - beforeCount;
             console.log(`Month ${m.label}: scraped ${monthCount} transactions`);
+            
+            completedSteps++;
+            emitProgress();
         }
     }
     // -------------------- DATE FILTER --------------------

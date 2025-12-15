@@ -2,6 +2,13 @@ import express from 'express';
 import path from 'path';
 import { login, getTransactions } from './scraper';
 
+type ProgressPayload = {
+    percent: number;
+    message?: string;
+};
+
+type ProgressFn = (p: ProgressPayload) => void;
+
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
 
@@ -28,7 +35,15 @@ app.post('/api/scrape', async (req, res) => {
 
     try {
         const context = await login(username, password, !!showBrowser);
-        const transactions = await getTransactions(context, sDate, eDate);
+        // const transactions = await getTransactions(context, sDate, eDate);
+        const transactions = await getTransactions(
+            context,
+            sDate,
+            eDate,
+            (p) => {
+                console.log(`[${p.percent}%] ${p.message ?? ''}`);
+            }
+        );
 
         // Close context/browser if possible
         try {
@@ -79,6 +94,48 @@ app.post('/api/scrape', async (req, res) => {
         }
         console.error('Scrape failed:', err);
         return res.status(500).json({ error: msg });
+    }
+});
+
+app.get('/api/scrape/stream', async (req, res) => {
+    const { username, password, startDate, endDate, showBrowser } = req.query;
+
+    if (!username || !password) {
+        res.status(400).end();
+        return;
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const send = (data: any) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+        const context = await login(
+            String(username),
+            String(password),
+            showBrowser === 'true'
+        );
+
+        const transactions = await getTransactions(
+            context,
+            startDate ? new Date(String(startDate)) : null,
+            endDate ? new Date(String(endDate)) : null,
+            (p) => send({ type: 'progress', ...p }) // 👈 关键
+        );
+
+        send({ type: 'done', transactions });
+        res.end();
+
+        const browser = context.browser();
+        if (browser) await browser.close();
+        else await context.close();
+    } catch (err: any) {
+        send({ type: 'error', message: err.message || String(err) });
+        res.end();
     }
 });
 

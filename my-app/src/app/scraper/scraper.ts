@@ -24,6 +24,10 @@ export class Scraper {
   previewRows: Array<Record<string, any>> = [];
   tableError: string | null = null;
 
+  progressPercent = 0;
+  progressMessage: string | null = null;
+  private eventSource: EventSource | null = null;
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef, private zone: NgZone) {}
 
   async run() {
@@ -85,24 +89,71 @@ export class Scraper {
     }
     this.running = true;
     try {
-      const payload = {
+      this.progressPercent = 0;
+      this.progressMessage = 'Starting...';
+
+      const params = new URLSearchParams({
         username: this.username.trim(),
         password: this.password,
-        startDate: this.startDate || null,
-        endDate: this.endDate || null,
-        showBrowser: !!this.showBrowser
-      };
+        showBrowser: String(!!this.showBrowser),
+      });
 
-      const rawResp = await lastValueFrom(this.http.post('/api/scrape', payload, { observe: 'response', responseType: 'blob' } as any));
-      const resp = rawResp as unknown as HttpResponse<Blob>;
-      if (!resp) {
-        this.showMessage('No response from server', 'error');
-        return;
-      }
-      // Parse blob and render table directly on page
-      const blob = resp.body as Blob;
-      await this.displayTransactionsFromBlob(blob);
-      this.showMessage('Transactions loaded.', 'info');
+      if (this.startDate) params.set('startDate', this.startDate);
+      if (this.endDate) params.set('endDate', this.endDate);
+
+      const url = `/api/scrape/stream?${params.toString()}`;
+
+      this.eventSource = new EventSource(url);
+
+      this.eventSource.onmessage = (evt) => {
+        this.zone.run(() => {
+          const data = JSON.parse(evt.data);
+
+          if (data.type === 'progress') {
+            this.progressPercent = data.percent ?? 0;
+            this.progressMessage = data.message || null;
+          }
+
+          if (data.type === 'done') {
+            this.eventSource?.close();
+            this.eventSource = null;
+
+            this.progressPercent = 100;
+            this.progressMessage = 'Completed';
+
+            this.displayTransactionsFromBlob(
+              new Blob([JSON.stringify(data.transactions)], {
+                type: 'application/json'
+              })
+            );
+
+            this.showMessage('Transactions loaded.', 'info');
+            this.running = false;
+          }
+
+          if (data.type === 'error') {
+            this.eventSource?.close();
+            this.eventSource = null;
+
+            this.showMessage(data.message || 'Scraping failed', 'error');
+            this.running = false;
+          }
+
+          this.cdr.detectChanges();
+        });
+      };
+      this.eventSource.onerror = () => {
+        this.zone.run(() => {
+          // Handle network/connection errors for SSE
+          this.eventSource?.close();
+          this.eventSource = null;
+          if (this.running) {
+            this.showMessage('Connection lost while receiving progress.', 'error');
+            this.running = false;
+          }
+          this.cdr.detectChanges();
+        });
+      };
     } catch (e: any) {
       try {
         // Detect invalid credentials (401) and show a friendly message
@@ -125,9 +176,8 @@ export class Scraper {
         }
       }
     } finally {
-      // Ensure UI updates even if outside Angular zone (e.g., after file download)
+      // Do not toggle running here; it's controlled by SSE events
       this.zone.run(() => {
-        this.running = false;
         this.cdr.detectChanges();
       });
     }

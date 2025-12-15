@@ -26,6 +26,20 @@
     <button (click)="run()" [disabled]="running">{{ running ? 'Running...' : 'Run & Show Transactions' }}</button>
   </div>
 
+  <!-- Progress bar -->
+  <div *ngIf="running" class="progress-wrapper" style="margin-top:12px">
+    <div class="progress-text">
+      {{ progressMessage || ('Progress: ' + progressPercent + '%') }}
+    </div>
+    <div class="progress-bar">
+      <div
+        class="progress-fill"
+        [style.width.%]="progressPercent">
+      </div>
+    </div>
+  </div>
+
+
   <div *ngIf="tableError" class="alert error" style="margin-top:10px">{{ tableError }}</div>
 
   <div *ngIf="previewRows.length" class="table-container" style="margin-top:16px">

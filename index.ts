@@ -77,7 +77,9 @@ import * as path from 'path';
         }
     }
     // Scrape transactions
-    const transactions = await getTransactions(context, startDate ?? null, endDate ?? null);
+    const transactions = await getTransactions(context, startDate ?? null, endDate ?? null, (p) => {
+        console.log(`[${p.percent}%] ${p.message ?? ''}`);
+    });
 
     // Automatically close browser when it was shown to the user.
     if (showBrowser) {
