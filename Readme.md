@@ -60,5 +60,54 @@ The script returns the same transaction array for programmatic use.
 - `scraper.ts` – Login, scraping logic, date filtering, JSON output
 - `index.ts` – CLI entrypoint (prompts user, calls scraper)
 
+
+## Transactions API
+
+### POST `/api/scrape`
+
+```powershell
+$body = @{
+  username = "xxx@xxx.com"
+  password = "xxxxxx"
+  startDate = ""
+  endDate = ""
+  showBrowser = $false
+} | ConvertTo-Json
+
+Invoke-WebRequest -Method Post `
+  -Uri "http://localhost:8080/api/scrape" `
+  -ContentType "application/json" `
+  -Body $body
+
+```
+
+### GET `/api/transactions`
+
+```powershell
+Invoke-WebRequest -Method Get -Uri "http://localhost:8080/api/transactions"
+
+Invoke-WebRequest -Method Get -Uri "http://localhost:8080/api/transactions?mode=bus"
+Invoke-WebRequest -Uri "http://localhost:8080/api/transactions?mode=lightrail" -OutFile transactions.json
+
+Invoke-WebRequest -Uri "http://localhost:8080/api/transactions?accountId=3085%202204%201089%208809" -OutFile transactions.json
+
+```
+
+### Query Parameters
+
+| parameter | description | type |
+|---------|-------------|------|
+| `accountId` | Filter by Opal card account ID | string |
+| `mode` | Filter by transport mode (e.g. `bus`, `lightrail`, `ferry`) | string |
+| `from` | Start date (MM-DD-YYYY) for filtering transactions by `time_utc` | string |
+| `to` | End date (MM-DD-YYYY) for filtering transactions by `time_utc` | string |
+
+---
+
 ## Disclaimer
 This tool automates browsing of the NSW Opal website for personal use only. Ensure usage complies with Opal's terms and conditions.
+
+
+
+Invoke-WebRequest -Method Get -Uri "http://localhost:8080/api/transactions?startDate=8-22-2024&endDate="
+Invoke-WebRequest -Uri "http://localhost:8080/api/transactions?startDate=8-22-2024&endDate=" -OutFile transactions.json

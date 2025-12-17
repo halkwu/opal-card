@@ -25,6 +25,35 @@ async function ask(question: string): Promise<string> {
 }
 
 /**
+ * Validate a date string in MM-DD-YYYY
+ */
+export function validateSydneyDate(
+    dateStr: string,
+    opts: { allowFuture?: boolean } = {}
+): { date: Date | null; error?: string } {
+    const allowFuture = !!opts.allowFuture;
+    const raw = (dateStr || '').trim();
+    if (!raw) return { date: null, error: 'Empty date string' };
+
+    const parts = raw.split('-');
+    if (parts.length !== 3) return { date: null, error: 'Invalid format. Use MM-DD-YYYY.' };
+    const month = parseInt(parts[0], 10);
+    const day = parseInt(parts[1], 10);
+    const year = parseInt(parts[2], 10);
+    if (isNaN(month) || isNaN(day) || isNaN(year)) return { date: null, error: 'Invalid numeric values' };
+    if (month < 1 || month > 12) return { date: null, error: 'Month must be 01-12' };
+    if (day < 1 || day > 31) return { date: null, error: 'Day must be 01-31' };
+
+    const dt = DateTime.fromObject({ year, month, day }, { zone: 'Australia/Sydney' }).startOf('day');
+    if (!dt.isValid) return { date: null, error: 'Non-existent calendar date' };
+
+    const todaySydneyDT = DateTime.now().setZone('Australia/Sydney').startOf('day');
+    if (!allowFuture && dt > todaySydneyDT) return { date: null, error: 'Date cannot be in the future (Sydney local)' };
+
+    return { date: dt.toJSDate() };
+}
+
+/**
  * Ask for username + password + startDate + endDate
  */
 export async function DateRange(): Promise<{
@@ -38,106 +67,38 @@ export async function DateRange(): Promise<{
     const username = await ask("Enter username (email): ");
     const password = await ask("Enter password: ");
 
-    function parseDate(dateStr: string): Date | null {
-        const parts = dateStr.trim().split("-");
-        if (parts.length !== 3) return null;
-        const month = parseInt(parts[0], 10);
-        const day = parseInt(parts[1], 10);
-        const year = parseInt(parts[2], 10);
-        if (isNaN(month) || isNaN(day) || isNaN(year)) return null;
-        // Create a DateTime at Australia/Sydney midnight for the given date and validate
-        const dt = DateTime.fromObject({ year, month, day }, { zone: 'Australia/Sydney' }).startOf('day');
-        if (!dt.isValid) return null;
-        return dt.toJSDate();
-    }
-
-    // Repeatedly prompt for start and end separately so startDate is validated immediately
     let startDate: Date | null = null;
     let endDate: Date | null = null;
     const todaySydneyDT = DateTime.now().setZone('Australia/Sydney').startOf('day');
 
-    // Loop so that if start > end we only re-prompt start/end (not username/password)
     while (true) {
-        // Prompt and validate startDate immediately (re-prompt until valid)
+        // Prompt and validate startDate 
         while (true) {
             const startInput = await ask("Enter start date (MM-DD-YYYY) or press Enter for the earliest date of the system: ");
-            if (!startInput.trim()) {
-                startDate = null;
-                break;
-            }
-            const parts = startInput.trim().split("-");
-            if (parts.length !== 3) {
-                console.log("Invalid start date format. Use MM-DD-YYYY. Please try again.");
-                continue;
-            }
-            const mon = parseInt(parts[0], 10);
-            const day = parseInt(parts[1], 10);
-            const yr = parseInt(parts[2], 10);
-            if (isNaN(mon) || isNaN(day) || isNaN(yr) || mon < 1 || mon > 12 || day < 1 || day > 31) {
-                console.log("Start date month must be 01-12 and day 01-31. Please try again.");
-                continue;
-            }
-            const parsed = parseDate(startInput);
-            if (!parsed) {
-                console.log("Invalid start date (non-existent date). Please try again.");
-                continue;
-            }
-            const parsedDT = DateTime.fromJSDate(parsed).setZone('Australia/Sydney').startOf('day');
-            if (parsedDT > todaySydneyDT) {
-                console.log("Start date cannot be in the future (Sydney local). Please try again.");
-                continue;
-            }
-            startDate = parsed;
-            break;
+            if (!startInput.trim()) { startDate = null; break; }
+            const { date, error } = validateSydneyDate(startInput, { allowFuture: false });
+            if (!date) { console.log(`Invalid start date: ${error}. Please try again.`); continue; }
+            startDate = date; break;
         }
-
-        // Prompt and validate endDate (re-prompt until valid)
         while (true) {
             const endInput = await ask("Enter end date (MM-DD-YYYY) or press Enter for today: ");
-            if (!endInput.trim()) {
-                endDate = null;
-                break;
-            }
-            const parts = endInput.trim().split("-");
-            if (parts.length !== 3) {
-                console.log("Invalid end date format. Use MM-DD-YYYY. Please try again.");
-                continue;
-            }
-            const mon = parseInt(parts[0], 10);
-            const day = parseInt(parts[1], 10);
-            const yr = parseInt(parts[2], 10);
-            if (isNaN(mon) || isNaN(day) || isNaN(yr) || mon < 1 || mon > 12 || day < 1 || day > 31) {
-                console.log("End date month must be 01-12 and day 01-31. Please try again.");
-                continue;
-            }
-            const parsed = parseDate(endInput);
-            if (!parsed) {
-                console.log("Invalid end date (non-existent date). Please try again.");
-                continue;
-            }
-            const parsedDT = DateTime.fromJSDate(parsed).setZone('Australia/Sydney').startOf('day');
-            if (parsedDT > todaySydneyDT) {
-                console.log("End date cannot be in the future (Sydney local). Please try again.");
-                continue;
-            }
-            endDate = parsed;
-            break;
+            if (!endInput.trim()) { endDate = null; break; }
+            const { date, error } = validateSydneyDate(endInput, { allowFuture: false });
+            if (!date) { console.log(`Invalid end date: ${error}. Please try again.`); continue; }
+            endDate = date; break;
         }
-
-        // validate order if both present; if invalid, loop to re-prompt start/end only
         if (startDate && endDate) {
             const s = DateTime.fromJSDate(startDate).setZone('Australia/Sydney');
             const e = DateTime.fromJSDate(endDate).setZone('Australia/Sydney');
             if (s > e) {
                 console.log("Start date must be before or equal to end date. Please re-enter start and end dates.");
-                continue; // re-run the outer while to re-prompt start and end
+                continue; 
             }
         }
-
-        break; // valid start/end collected
+        break; 
     }
 
-    // Prompt whether to open the browser to display the scraping process
+    // Prompt whether to open the browser 
     let showBrowser = true;
     while (true) {
         const resp = await ask("Open browser to show process? (y/n): ");
@@ -151,7 +112,9 @@ export async function DateRange(): Promise<{
     return { username, password, startDate, endDate, showBrowser };
 }
 
-// Export a small helper so callers can re-prompt credentials on login failure
+/**
+ * Export a small helper can re-prompt credentials on login failure
+ */
 export async function askCredentials(): Promise<{ username: string; password: string }> {
     console.log("(Type 'q' at any prompt to quit)");
     const username = await ask("Enter username (email): ");
@@ -160,35 +123,30 @@ export async function askCredentials(): Promise<{ username: string; password: st
 }
 
 /**
- * Filter results based on date range rules:
- * 1. start=null & end=null → return ALL
- * 2. start=null & end!=null → return earliest → end
- * 3. start!=null & end=null → return start → latest
- * 4. both exist → standard range
+ * Filter results based on date range
  */
 function filterByDateRange(
     results: any[],
     startDate: Date | null,
     endDate: Date | null
 ): any[] {
-    // No filtering at all
+    // No filtering
     if (!startDate && !endDate) {
         return results;
     }
 
-    // Convert boundaries to Luxon DateTime in Australia/Sydney for reliable comparisons
+    // Convert boundaries to Luxon DateTime 
     const startDT = startDate ? DateTime.fromJSDate(startDate).setZone('Australia/Sydney').startOf('day') : null;
     const endDT = endDate ? DateTime.fromJSDate(endDate).setZone('Australia/Sydney').endOf('day') : null;
 
     return results.filter(tx => {
-        // tx.transactionDate is formatted as MM-DD-YYYY (from parseOpalDate path)
         const txDT = DateTime.fromFormat(tx.transactionDate, 'MM-dd-yyyy', { zone: 'Australia/Sydney' });
         if (!txDT.isValid) return false;
-        // Case 2: start null, end not null → earliest → end
+        // Case 2: earliest → end
         if (!startDT && endDT) {
             return txDT <= endDT;
         }
-        // Case 3: start not null, end null → start → latest
+        // Case 3: start → latest
         if (startDT && !endDT) {
             return txDT >= startDT;
         }
@@ -215,8 +173,6 @@ export async function login(username: string, password: string, showBrowser: boo
         await frame.waitForSelector('input[name="username"]', { timeout: 6000 });
         await frame.fill('input[name="username"]', username);
         await frame.fill('input[name="password"]', password);
-
-        // Click login and wait for either the account page URL or an error message in the login frame.
         await frame.click('button.opal-username-login');
 
         const successPromise = page.waitForURL('**/opal-view/#/account/cards', { timeout: 6000 })
@@ -250,7 +206,6 @@ export async function login(username: string, password: string, showBrowser: boo
             throw new Error('InvalidCredentials');
         }
 
-        // Fallback: check the URL once more; if not successful, signal a generic failure.
         try {
             const cur = page.url();
             if (cur.includes('/opal-view/#/account/cards')) {
@@ -264,7 +219,6 @@ export async function login(username: string, password: string, showBrowser: boo
         throw new Error('LoginFailed');
     } catch (err: any) {
         console.error('Login failed:', err && err.message ? err.message : err);
-        // if browser was launched, try to close it to free resources
         try { if (browser) await browser.close(); } catch (e) {}
         throw err;
     }
@@ -287,7 +241,7 @@ export async function getTransactions(
     const pad = (n: number) => n.toString().padStart(2, "0");
 
     function fmtDate(d: Date) {
-        // Format as MM-DD-YYYY using Australia/Sydney local date parts
+        // Format as MM-DD-YYYY
         const dt = DateTime.fromJSDate(d).setZone('Australia/Sydney');
         return `${pad(dt.month)}-${pad(dt.day)}-${dt.year}`;
     }
@@ -301,19 +255,14 @@ export async function getTransactions(
     function parseAmount(raw: string, description?: string) {
         const text = (raw || "").trim();
         const ctx = ((text + " " + (description || "")).trim()).toLowerCase();
-        // Detect top-up keywords (common variants) in amount text or description
         const isTopUp = /top\s*-?\s*up|topup|recharge|credited|add funds|load|load funds|added/i.test(ctx) || ctx.includes('top');
-
-        // Extract numeric value from the raw amount (handles $ , and optional +/- and decimals)
         const numericMatch = text.replace(/[$,]/g, "").match(/[+-]?\d+(?:\.\d+)?/);
         let amount = numericMatch ? parseFloat(numericMatch[0]) : 0;
         if (isNaN(amount)) amount = 0;
 
         if (isTopUp) {
-            // Top-ups should be positive
             return { quantity: Math.abs(amount), currency: "AUD" };
         }
-        // Charges should be negative
         return { quantity: -Math.abs(amount), currency: "AUD" };
     }
 
@@ -402,7 +351,6 @@ export async function getTransactions(
         return a.month - b.month;
     }
 
-    // Determine target start/end months based on provided dates and available months
     let startMY: { month: number; year: number } | null = null;
     let endMY: { month: number; year: number } | null = null;
     if (startDate) {
@@ -413,12 +361,9 @@ export async function getTransactions(
         const dt = DateTime.fromJSDate(endDate).setZone('Australia/Sydney');
         endMY = { month: dt.month - 1, year: dt.year };
     }
-
-    // Sort monthsParsed ascending for deriving earliest/latest
     monthsParsed.sort((a, b) => monthCmp(a, b));
 
-    // If user pressed Enter (null) default startDate to earliest available month
-    // and default endDate to today's Sydney date.
+    // Default startDate and default endDate to today's Sydney date.
     const todaySydneyDT = DateTime.now().setZone('Australia/Sydney').startOf('day');
     if (!startDate && monthsParsed.length > 0) {
         const earliest = monthsParsed[0];
@@ -431,7 +376,7 @@ export async function getTransactions(
         console.log(`endDate not provided; defaulting to today (Sydney) ${fmtDate(endDate)}`);
     }
 
-    // Compute startMY/endMY from (possibly defaulted) startDate/endDate
+    // Compute startMY/endMY from startDate/endDate
     if (startDate) {
         const dt = DateTime.fromJSDate(startDate).setZone('Australia/Sydney');
         startMY = { month: dt.month - 1, year: dt.year };
@@ -451,46 +396,38 @@ export async function getTransactions(
             startDate = earliestDT.toJSDate();
             console.log(`startDate earlier than earliest available month; adjusting startDate to ${fmtDate(startDate)}`);
         }
-        // recompute startMY from possibly-updated startDate
         const dt = DateTime.fromJSDate(startDate).setZone('Australia/Sydney');
         startMY = { month: dt.month - 1, year: dt.year };
     }
 
     if (!startMY && !endMY) {
-        // No dates provided → default to available earliest → latest
         if (monthsParsed.length > 0) {
             startMY = { month: monthsParsed[0].month, year: monthsParsed[0].year };
             endMY = { month: monthsParsed[monthsParsed.length - 1].month, year: monthsParsed[monthsParsed.length - 1].year };
         }
     } else {
-        // Fill missing boundary from available months
         if (!startMY && monthsParsed.length > 0) startMY = { month: monthsParsed[0].month, year: monthsParsed[0].year };
         if (!endMY && monthsParsed.length > 0) endMY = { month: monthsParsed[monthsParsed.length - 1].month, year: monthsParsed[monthsParsed.length - 1].year };
     }
 
-    // If user provided an endDate and it's before today's date (UTC),
-    // we should suppress bankImportedBalance values because the balance at
-    // the end of the requested range won't reflect today's/latest balance.
+    // Calculate bankImportedBalance values
     let disableBankImported = false;
     if (endDate) {
-        // Compare endDate to today's date in Australia/Sydney local time
         const todaySydney = DateTime.now().setZone('Australia/Sydney').startOf('day').toJSDate();
         if (DateTime.fromJSDate(endDate).setZone('Australia/Sydney').toMillis() < DateTime.fromJSDate(todaySydney).setZone('Australia/Sydney').toMillis()) {
             disableBankImported = true;
         }
     }
 
-    // Build months to iterate: those between startMY and endMY (inclusive).
+    // Build months to iterate
     let monthsToUse: Array<{ label: string; value: string | null; month: number; year: number }> = [];
     if (startMY && endMY) {
         monthsToUse = monthsParsed.filter(m => {
             const val = { month: m.month, year: m.year };
             return monthCmp(startMY!, val) <= 0 && monthCmp(val, endMY!) <= 0;
         });
-        // Iterate from end -> start as requested (descending)
         monthsToUse.sort((a, b) => monthCmp(b, a));
     } else {
-        // Fallback: use all parsed months in descending order
         monthsToUse = monthsParsed.slice().sort((a, b) => monthCmp(b, a));
     }
 

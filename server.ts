@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
-import { login, getTransactions } from './scraper';
+import * as fs from 'fs';
+import { login, getTransactions, validateSydneyDate } from './scraper';
 
 type ProgressPayload = {
     percent: number;
@@ -16,6 +17,28 @@ app.use(express.json({ limit: '10mb' }));
 
 // Serve static UI
 app.use('/', express.static(path.join(__dirname, 'my-app', 'public')));
+
+// In-memory transaction store populated after scraping (fallback if no file)
+let transactionStore: any[] = [];
+
+// Helper: read transactions from latest saved JSON file
+function readLatestTransactionsFromDisk(): any[] {
+    try {
+        const dir = process.cwd();
+        const files = fs.readdirSync(dir).filter(f => f.startsWith('transactions_') && f.endsWith('.json'));
+        if (files.length === 0) return [];
+        // Sort by file mtime desc to pick the most recent
+        const withStats = files.map(f => ({ f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }));
+        withStats.sort((a, b) => b.mtime - a.mtime);
+        const latestPath = path.join(dir, withStats[0].f);
+        const raw = fs.readFileSync(latestPath, 'utf8');
+        const data = JSON.parse(raw);
+        return Array.isArray(data) ? data : [];
+    } catch (e) {
+        console.error('Failed to read transactions from disk:', e);
+        return [];
+    }
+}
 
 function fmtDateForName(d: Date | null) {
     if (!d) return '';
@@ -86,15 +109,74 @@ app.post('/api/scrape', async (req, res) => {
 
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        // Update for later GET queries
+        if (Array.isArray(transactions)) {
+            transactionStore = transactions;
+        }
         res.status(200).send(JSON.stringify(transactions, null, 2));
     } catch (err: any) {
         const msg = err && err.message ? err.message : String(err);
         if (msg === 'InvalidCredentials') {
-            return res.status(401).json({ error: 'Invalid credentials' });
+            // Return 401 
+            return res.status(401).end();
         }
         console.error('Scrape failed:', err);
         return res.status(500).json({ error: msg });
     }
+});
+
+// Query transactions by reading the latest saved JSON file on disk (fallback to memory)
+app.get('/api/transactions', (req, res) => {
+    // Prefer reading from disk so results persist across restarts
+    let result = readLatestTransactionsFromDisk();
+    if (!result || result.length === 0) {
+        result = transactionStore || [];
+    }
+
+    const { accountId, mode, startDate, endDate } = req.query as Record<string, string | undefined>;
+
+    // Validate dates using existing helper (MM-DD-YYYY). Allow future dates for filtering.
+    let sDate: Date | null = null;
+    let eDate: Date | null = null;
+    if (startDate && startDate.trim()) {
+        const { date, error } = validateSydneyDate(String(startDate), { allowFuture: true });
+        if (!date) {
+            return res.status(400).json({ error: `Invalid startDate: ${error}` });
+        }
+        sDate = date;
+    }
+    if (endDate && endDate.trim()) {
+        const { date, error } = validateSydneyDate(String(endDate), { allowFuture: true });
+        if (!date) {
+            return res.status(400).json({ error: `Invalid endDate: ${error}` });
+        }
+        eDate = date;
+    }
+    if (sDate && eDate && sDate > eDate) {
+        return res.status(400).json({ error: 'startDate must be before or equal to endDate' });
+    }
+
+    if (accountId) {
+        result = result.filter((t: any) => String(t.accountId) === String(accountId));
+    }
+
+    if (mode) {
+        result = result.filter((t: any) => String(t.mode) === String(mode));
+    }
+
+    if (sDate) {
+        result = result.filter((t: any) => new Date(String(t.time_utc)) >= sDate!);
+    }
+
+    if (eDate) {
+        result = result.filter((t: any) => new Date(String(t.time_utc)) <= eDate!);
+    }
+
+    // res.json(result);
+    res
+        .type('application/json')
+        .send(JSON.stringify(result, null, 2));
+
 });
 
 app.get('/api/scrape/stream', async (req, res) => {
@@ -124,7 +206,7 @@ app.get('/api/scrape/stream', async (req, res) => {
             context,
             startDate ? new Date(String(startDate)) : null,
             endDate ? new Date(String(endDate)) : null,
-            (p) => send({ type: 'progress', ...p }) // 👈 关键
+            (p) => send({ type: 'progress', ...p }) 
         );
 
         send({ type: 'done', transactions });
@@ -138,6 +220,8 @@ app.get('/api/scrape/stream', async (req, res) => {
         res.end();
     }
 });
+
+
 
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}/scraper.html`);
